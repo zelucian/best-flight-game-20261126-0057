@@ -1,41 +1,61 @@
-// A working best-game-01 entry (Node 22, standard library only): the game is this directory's
-// game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
-// modules, no library and no network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library. A starting point, not a winner: Block Dodger, a
-// plain 2D canvas game where a paddle dodges falling blocks and catches coins, with a title screen,
-// score, lives and levels, game over and restart, flat colours and no sound. Build your own game
-// (any genre, any library you vendor under game/, or none), put your 3 or 4 PNG or JPEG screenshots
-// in screenshots/ (the first by name is the cover) and run it.
+// Skyline Courier — the entrypoint for this make.fun best-game-01 entry.
 //
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+// The playable game is the static site in game/ (game/index.html is the page
+// a desktop browser loads offline, no network requests, no build step) and
+// the showcase images are the PNG/JPEG renders in screenshots/ (the first
+// by name is the cover). This program is only the packager: it copies both
+// folders into the output directory and writes dossier.json there, the
+// summary the judge reads, using the vendored make.fun library in
+// vendor/makefun-game.ts.
+//
+// Run it locally with:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// then serve the `out` folder the same way serve.ts serves this repo. Inside
+// the grader's container the output directory is /output, unless
+// MAKEFUN_OUTPUT_DIR says otherwise.
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+/** The caps the scorer's own gate applies to this bounty (its gate.json). */
+const DOSSIER_CAPS = {
+  /** The most UTF-8 bytes the dossier's text may hold. */
+  text_max_bytes: 163840,
+  /** At most this many screenshots, each at most this many bytes. */
+  screenshots: { max: 4, max_bytes: 262144 },
+  /** game/ may hold at most this many files and directories, in all. */
+  game_max_files: 993,
+  /** game/'s files may come to at most this many bytes, in all. */
+  game_max_bytes: 50331648,
+  /** No path under game/ may be longer than this many UTF-8 bytes. */
+  game_path_max_bytes: 1000,
+} as const;
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+const repoRoot = fileURLToPath(new URL('.', import.meta.url));
+const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
-// files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
-// screenshots/ and dossier.json).
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
-);
+const gameDir = join(repoRoot, 'game');
+const shotsDir = join(repoRoot, 'screenshots');
+
+// The game is nothing without its entry page: refuse early, with a plain
+// message, when game/index.html is missing, rather than copying a broken
+// game and letting buildDossier fail on it further down.
+if (!existsSync(join(gameDir, 'index.html'))) {
+  throw new Error('game/index.html: no such file — Skyline Courier needs its entry page at game/index.html');
+}
+
+// A dossier needs at least one screenshot, so refuse early with a plain
+// message when screenshots/ is missing or empty, instead of letting
+// buildDossier fail on an empty folder further down.
+if (!existsSync(shotsDir) || readdirSync(shotsDir).length === 0) {
+  throw new Error('screenshots/: no screenshots — Skyline Courier needs 3 or 4 PNG or JPEG renders');
+}
+
+mkdirSync(outputDir, { recursive: true });
+cpSync(gameDir, join(outputDir, 'game'), { recursive: true });
+mkdirSync(join(outputDir, 'screenshots'), { recursive: true });
+cpSync(shotsDir, join(outputDir, 'screenshots'), { recursive: true });
+
+writeFileSync(join(outputDir, 'dossier.json'), buildDossier(outputDir, DOSSIER_CAPS));
